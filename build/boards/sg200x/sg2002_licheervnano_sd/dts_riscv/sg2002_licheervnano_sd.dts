@@ -185,6 +185,10 @@
         snsr-reset = <&porte 1 GPIO_ACTIVE_LOW>;
 };
 
+&ethernet0 {
+        status = "disabled";
+};
+
 / {
         model = "LicheeRv Nano";
 

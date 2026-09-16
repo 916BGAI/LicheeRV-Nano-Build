@@ -128,14 +128,14 @@ int cvi_board_init(void)
         //mmio_write_32(0x0300116C, 0x5); // RX4N CAM_MCLK0 for alpha
         mmio_write_32(0x0300118C, 0x5); // RX0N CAM_MCLK1 for beta
 
-	// spi1 on mipi csi 
+	// spi1 on mipi csi
 	/*
 	mmio_write_32(0x0300116C, 0x7); // spi1 clk   GPIOC2 MIPI_RX4N
 	mmio_write_32(0x03001170, 0x7); // spi1 cs    GPIOC3 MIPI_RX4P
 	mmio_write_32(0x03001174, 0x7); // spi1 miso  GPIOC4 MIPI_RX3N
 	mmio_write_32(0x03001178, 0x7); // spi1 mosi  GPIOC5 MIPI_RX3P
 	*/
-	
+
 
         // camera/tp i2c
         mmio_write_32(0x03001090, 0x5); // PWR_GPIO6 IIC4_SCL
@@ -147,15 +147,55 @@ int cvi_board_init(void)
         mmio_write_32(0x05027078, 0x11);// Unlock PWR_GPIO[3]
         mmio_write_32(0x0502707c, 0x11);// Unlock PWR_GPIO[4]
 
-	// bitbang i2c
+        // bitbang i2c
         mmio_write_32(0x0300103C, 0x03); // GPIOA 15 GPIO_MODE
-	mmio_write_32(0x03001058, 0x03); // GPIOA 27 GPIO_MODE
+        mmio_write_32(0x03001058, 0x03); // GPIOA 27 GPIO_MODE
 
-	// bitbang spi
-	mmio_write_32(0x03001060, 0x03); // GPIOA 24 GPIO_MODE
-	mmio_write_32(0x0300105C, 0x03); // GPIOA 23 GPIO_MODE
-	mmio_write_32(0x03001054, 0x03); // GPIOA 25 GPIO_MODE
-	mmio_write_32(0x03001050, 0x03); // GPIOA 22 GPIO_MODE
+        // rvclaw key
+        mmio_write_32(0x03001060, 0x03);
+        mmio_write_32(0x0300192C, 0x44);
+        mmio_write_32(0x03001074, 0x03);
+        mmio_write_32(0x03001940, 0x44);
+
+        // rvclaw led
+        mmio_write_32(0x0300103C, 0x03);
+        mmio_write_32(0x03001908, 0x44);
+        mmio_write_32(0x03001068, 0x03);
+        mmio_write_32(0x03001934, 0x44);
+
+        // rvclaw spi1
+        mmio_write_32(0x03001050, 0x03);
+        mmio_write_32(0x0300105C, 0x03);
+        mmio_write_32(0x03001054, 0x03);
+        mmio_write_32(0x0300191C, 0x40);
+        mmio_write_32(0x03001928, 0x40);
+        mmio_write_32(0x03001920, 0x40);
+        mmio_write_32(0x03001124, 0x06);
+        mmio_write_32(0x03001128, 0x06);
+        mmio_write_32(0x0300112C, 0x06);
+        mmio_write_32(0x03001130, 0x06);
+        mmio_write_32(0x03009804, 0x01);
+        val = mmio_read_32(0x03009808);
+        val = (val & ~0x1F) | 0x01;
+        mmio_write_32(0x03009808, val);
+        val = mmio_read_32(0x03009800);
+        val |= (1 << 2);
+        mmio_write_32(0x03009800, val);
+        for (volatile uint32_t i = 0; i < 1000; i++)
+                asm volatile ("nop");
+        val = mmio_read_32(0x0300907C);
+        val = (val & ~(0x1F << 8)) | (5 << 8);
+        mmio_write_32(0x0300907C, val);
+        val = mmio_read_32(0x03009078);
+        val = (val & ~0xFFF) | 0xF00;
+        mmio_write_32(0x03009078, val);
+        val = mmio_read_32(0x03009074);
+        val = (val & ~0x606) | 0x606;
+        mmio_write_32(0x03009074, val);
+        val = mmio_read_32(0x03009070);
+        val = (val & ~0x606) | 0x606;
+        mmio_write_32(0x03009070, val);
+        mmio_write_32(0x03009804, 0x00);
 
         // wait hardware bootup
         suck_loop(50);

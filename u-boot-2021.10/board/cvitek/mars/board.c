@@ -16,6 +16,7 @@
 #endif
 #include <usb/dwc2_udc.h>
 #include <usb.h>
+#include <spi.h>
 #include "mars_reg.h"
 #include "mmio.h"
 #include "mars_reg_fmux_gpio.h"
@@ -29,6 +30,15 @@
 
 DECLARE_GLOBAL_DATA_PTR;
 #define SD1_SDIO_PAD
+
+int dw_spi_get_clk(struct udevice *bus, ulong *rate)
+{
+	if (!rate)
+		return -EINVAL;
+
+	*rate = 75000000;
+	return 0;
+}
 
 #if defined(__aarch64__)
 static struct mm_region cv181x_mem_map[] = {
@@ -244,6 +254,234 @@ int board_init(void)
 #endif
 	pinmux_config(PINMUX_SDIO1);
 	cvi_board_init();
+	return 0;
+}
+
+#define ST7789_SLPOUT	0x11
+#define ST7789_INVON	0x21
+#define ST7789_DISPON	0x29
+#define ST7789_CASET	0x2A
+#define ST7789_RASET	0x2B
+#define ST7789_RAMWR	0x2C
+
+#define GPIO0_BASE	0x03020000
+
+#define ST7789_WIDTH	240
+#define ST7789_HEIGHT	240
+
+#include "rvclaw_logo.c"
+
+static inline void gpio_set_output_high(u32 base, u32 bit)
+{
+	u32 val;
+
+	val = mmio_read_32(base + 0x4);
+	val |= BIT(bit);
+	mmio_write_32(base + 0x4, val);
+
+	val = mmio_read_32(base + 0x0);
+	val |= BIT(bit);
+	mmio_write_32(base + 0x0, val);
+}
+
+static inline void gpio_set_value(u32 base, u32 bit, int high)
+{
+	u32 val;
+
+	val = mmio_read_32(base + 0x0);
+	if (high)
+		val |= BIT(bit);
+	else
+		val &= ~BIT(bit);
+	mmio_write_32(base + 0x0, val);
+}
+
+static int st7789_spi_xfer(struct spi_slave *slave, const u8 *buf, int len)
+{
+	if (!len)
+		return 0;
+
+	return spi_xfer(slave, len * 8, buf, NULL, SPI_XFER_BEGIN | SPI_XFER_END);
+}
+
+static int st7789_write_cmd(struct spi_slave *slave, u8 cmd)
+{
+	gpio_set_value(GPIO0_BASE, 28, 0);
+	return st7789_spi_xfer(slave, &cmd, 1);
+}
+
+static int st7789_write_data(struct spi_slave *slave, const u8 *buf, int len)
+{
+	gpio_set_value(GPIO0_BASE, 28, 1);
+	return st7789_spi_xfer(slave, buf, len);
+}
+
+static int st7789_write_reg(struct spi_slave *slave, u8 cmd, const u8 *data, int len)
+{
+	int ret;
+
+	ret = st7789_write_cmd(slave, cmd);
+	if (ret)
+		return ret;
+
+	if (data && len)
+		return st7789_write_data(slave, data, len);
+
+	return 0;
+}
+
+static int st7789_init_and_show_logo(struct spi_slave *slave)
+{
+	static const u8 init_b2[] = {0x1F, 0x1F, 0x00, 0x33, 0x33};
+	static const u8 init_36[] = {0x00};
+	static const u8 init_3a[] = {0x05};
+	static const u8 init_b7[] = {0x00};
+	static const u8 init_bb[] = {0x36};
+	static const u8 init_c0[] = {0x2C};
+	static const u8 init_c2[] = {0x01};
+	static const u8 init_c3[] = {0x13};
+	static const u8 init_c4[] = {0x20};
+	static const u8 init_c6[] = {0x13};
+	static const u8 init_d6[] = {0xA1};
+	static const u8 init_d0[] = {0xA4, 0xA1};
+	static const u8 init_e0[] = {0xF0, 0x08, 0x0E, 0x09, 0x08, 0x04, 0x2F, 0x33, 0x45, 0x36, 0x13, 0x12, 0x2A, 0x2D};
+	static const u8 init_e1[] = {0xF0, 0x0E, 0x12, 0x0C, 0x0A, 0x15, 0x2E, 0x32, 0x44, 0x39, 0x17, 0x18, 0x2B, 0x2F};
+	static const u8 init_e4[] = {0x1D, 0x00, 0x00};
+	u8 window_col[] = {0x00, 0x00, 0x00, ST7789_WIDTH - 1};
+	u8 window_row[] = {0x00, 0x00, 0x00, ST7789_HEIGHT - 1};
+	const int line_bytes = ST7789_WIDTH * 2;
+	const int frame_bytes = ST7789_WIDTH * ST7789_HEIGHT * 2;
+	const u8 *logo = rvclaw_logo;
+	int i, ret;
+
+	mmio_write_32(0x03001070, 0x3);
+	gpio_set_output_high(GPIO0_BASE, 28);
+
+	mmio_write_32(0x03001058, 0x3);
+	gpio_set_output_high(GPIO0_BASE, 27);
+	gpio_set_value(GPIO0_BASE, 27, 1);
+	mdelay(50);
+	gpio_set_value(GPIO0_BASE, 27, 0);
+	mdelay(50);
+	gpio_set_value(GPIO0_BASE, 27, 1);
+	mdelay(50);
+
+	ret = st7789_write_cmd(slave, ST7789_SLPOUT);
+	if (ret)
+		return ret;
+	mdelay(120);
+
+	ret = st7789_write_reg(slave, 0xB2, init_b2, sizeof(init_b2));
+	if (ret)
+		return ret;
+	ret = st7789_write_reg(slave, 0x36, init_36, sizeof(init_36));
+	if (ret)
+		return ret;
+	ret = st7789_write_reg(slave, 0x3A, init_3a, sizeof(init_3a));
+	if (ret)
+		return ret;
+	ret = st7789_write_reg(slave, 0xB7, init_b7, sizeof(init_b7));
+	if (ret)
+		return ret;
+	ret = st7789_write_reg(slave, 0xBB, init_bb, sizeof(init_bb));
+	if (ret)
+		return ret;
+	ret = st7789_write_reg(slave, 0xC0, init_c0, sizeof(init_c0));
+	if (ret)
+		return ret;
+	ret = st7789_write_reg(slave, 0xC2, init_c2, sizeof(init_c2));
+	if (ret)
+		return ret;
+	ret = st7789_write_reg(slave, 0xC3, init_c3, sizeof(init_c3));
+	if (ret)
+		return ret;
+	ret = st7789_write_reg(slave, 0xC4, init_c4, sizeof(init_c4));
+	if (ret)
+		return ret;
+	ret = st7789_write_reg(slave, 0xC6, init_c6, sizeof(init_c6));
+	if (ret)
+		return ret;
+	ret = st7789_write_reg(slave, 0xD6, init_d6, sizeof(init_d6));
+	if (ret)
+		return ret;
+	ret = st7789_write_reg(slave, 0xD0, init_d0, sizeof(init_d0));
+	if (ret)
+		return ret;
+	ret = st7789_write_reg(slave, 0xE0, init_e0, sizeof(init_e0));
+	if (ret)
+		return ret;
+	ret = st7789_write_reg(slave, 0xE1, init_e1, sizeof(init_e1));
+	if (ret)
+		return ret;
+	ret = st7789_write_reg(slave, 0xE4, init_e4, sizeof(init_e4));
+	if (ret)
+		return ret;
+
+	ret = st7789_write_cmd(slave, ST7789_INVON);
+	if (ret)
+		return ret;
+	ret = st7789_write_cmd(slave, ST7789_SLPOUT);
+	if (ret)
+		return ret;
+	ret = st7789_write_cmd(slave, ST7789_DISPON);
+	if (ret)
+		return ret;
+	mdelay(100);
+
+	ret = st7789_write_reg(slave, ST7789_CASET, window_col, sizeof(window_col));
+	if (ret)
+		return ret;
+	ret = st7789_write_reg(slave, ST7789_RASET, window_row, sizeof(window_row));
+	if (ret)
+		return ret;
+	ret = st7789_write_cmd(slave, ST7789_RAMWR);
+	if (ret)
+		return ret;
+
+	if (sizeof(rvclaw_logo) < frame_bytes)
+		return -EINVAL;
+
+	for (i = 0; i < ST7789_HEIGHT; i++) {
+		ret = st7789_write_data(slave, logo + i * line_bytes, line_bytes);
+		if (ret)
+			return ret;
+	}
+
+	mmio_write_32(0x03001064, 0x3);
+	gpio_set_output_high(GPIO0_BASE, 19);
+	gpio_set_value(GPIO0_BASE, 19, 0);
+
+	return 0;
+}
+
+int board_late_init(void)
+{
+	int ret;
+	struct spi_slave *slave;
+	struct udevice *dev;
+
+	ret = spi_get_bus_and_cs(1, 0, 30000000, SPI_MODE_0,
+				 "spi_generic_drv", "spidev", &dev, &slave);
+	if (ret) {
+		printf("SPI1 init failed: %d\n", ret);
+		return 0;
+	}
+
+	ret = spi_claim_bus(slave);
+	if (ret) {
+		printf("SPI1 claim failed: %d\n", ret);
+		return 0;
+	}
+
+	ret = st7789_init_and_show_logo(slave);
+	if (ret)
+		printf("ST7789 init/logo failed: %d\n", ret);
+	else
+		printf("ST7789 logo done\n");
+
+	spi_release_bus(slave);
+	spi_free_slave(slave);
+
 	return 0;
 }
 

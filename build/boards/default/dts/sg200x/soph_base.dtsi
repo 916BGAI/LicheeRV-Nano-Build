@@ -121,7 +121,7 @@
 	sysdma_remap {
 		compatible = "cvitek,sysdma_remap";
 		reg = <0x0 0x03000154 0x0 0x10>;
-		ch-remap = <CVI_I2S0_RX CVI_I2S2_TX CVI_I2S1_RX CVI_I2S1_TX
+		ch-remap = <CVI_I2S0_RX CVI_I2S2_TX CVI_SPI1_RX CVI_SPI1_TX
 					CVI_SPI_NAND CVI_SPI_NAND CVI_I2S2_RX CVI_I2S3_TX>;
 		int_mux_base = <0x03000298>;
 	};
@@ -225,6 +225,10 @@
 		clocks = <&clk CV181X_CLK_SPI>;
 		#address-cells = <1>;
 		#size-cells = <0>;
+		dmas = <&dmac 2 1 1
+			&dmac 3 1 1>;
+		dma-names = "rx", "tx";
+		capability = "txrx";
 	};
 
 	spi2:spi2@041A0000 {
@@ -579,10 +583,12 @@
 		clock-names = "i2sclk";
 		dev-id = <1>;
 		#sound-dai-cells = <0>;
+#if 0
 		dmas = <&dmac 2 1 1 /* read channel */
 			&dmac 3 1 1>; /* write channel */
 		dma-names = "rx", "tx";
 		capability = "txrx";
+#endif
 		mclk_out = "false";
 	};
 
